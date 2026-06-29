@@ -1,0 +1,9 @@
+**/__pycache__/
+.env
+*.csv
+logs/
+package-lock.yml
+**/dbt_packages/
+.user.yml
+target/
+bin/

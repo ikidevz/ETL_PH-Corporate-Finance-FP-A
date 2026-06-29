@@ -1,0 +1,81 @@
+name: "fpna_dbt"
+version: "1.0.0"
+config-version: 2
+
+profile: "fpna"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+target-path: "target"
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+  - "logs"
+
+quoting:
+  database: false
+  schema: false
+  identifier: false
+
+vars:
+  project_name: "PH Corporate FP&A Analytics"
+  local_timezone: "Asia/Manila"
+  reporting_currency: "PHP"
+
+models:
+  fpna_dbt:
+    +persist_docs:
+      relation: true
+      columns: true
+
+    +on_schema_change: sync_all_columns
+
+    staging:
+      +materialized: view
+      +tags:
+        - staging
+        - silver
+
+    marts:
+      core:
+        +materialized: table
+        +tags:
+          - mart
+          - gold
+
+      reporting:
+        +materialized: view
+        +tags:
+          - reporting
+          - gold
+
+seeds:
+  fpna_dbt:
+    +schema: silver
+    +quote_columns: false
+
+    chart_of_accounts:
+      +column_types:
+        gl_account_code: varchar
+
+    cost_center_hierarchy:
+      +column_types:
+        cost_center_code: varchar
+
+    ph_fiscal_calendar:
+      +column_types:
+        period_name: varchar
+
+    fx_rates:
+      +column_types:
+        period_name: varchar
+
+dispatch:
+  - macro_namespace: dbt_utils
+    search_order:
+      - fpna_dbt
+      - dbt_utils

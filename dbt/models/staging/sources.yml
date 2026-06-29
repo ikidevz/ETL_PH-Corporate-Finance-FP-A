@@ -1,0 +1,369 @@
+version: 2
+
+sources:
+  - name: bronze
+    database: fpna_db
+    schema: bronze
+    description: >
+      Raw ingestion layer — append-only bronze tables loaded from CSV via
+      PUT + COPY INTO. Never modified after load; all cleaning happens in
+      the staging (silver) layer.
+    tables:
+      - name: raw_gl_actuals
+        description: >
+          ERP general ledger journal entries. 24 months × 500 lines/month
+          = 12,000 rows across all subsidiaries, cost centers, and GL
+          accounts. Includes ACTUAL, ACCRUAL, REVERSAL, and RECLASSIFICATION
+          entry types.
+        columns:
+          - name: journal_id
+            description: UUID primary key for each GL journal entry.
+            tests:
+              - not_null
+          - name: journal_line
+            description: Line number within the journal batch (1–10).
+            tests:
+              - not_null
+          - name: entry_type
+            description: >
+              Classification of the GL entry. Controls downstream P&L sign
+              treatment.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["ACTUAL", "ACCRUAL", "REVERSAL", "RECLASSIFICATION"]
+          - name: posting_date
+            description: Calendar date the entry was posted to the ledger.
+            tests:
+              - not_null
+          - name: fiscal_year
+            description: Fiscal year of the posting (e.g. 2023, 2024).
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Fiscal month integer 1–12.
+            tests:
+              - not_null
+          - name: period_name
+            description: Human-readable period label, e.g. "2024-03".
+          - name: gl_account
+            description: GL account code, e.g. "4001". FK to dim_account.
+            tests:
+              - not_null
+          - name: account_name
+            description: Descriptive name of the GL account.
+          - name: account_type
+            description: "High-level account classification: Revenue, COGS, OpEx, Finance Cost, Tax."
+            tests:
+              - accepted_values:
+                  values: ["Revenue", "COGS", "OpEx", "Finance Cost", "Tax"]
+          - name: pnl_line
+            description: "P&L grouping label: Net Revenue, COGS, Personnel Costs, Occupancy, Marketing, D&A, Admin & General, Finance Costs, Tax."
+          - name: cost_center
+            description: Cost center code, e.g. "CC-RETAIL-MNL". FK to dim_cost_center.
+            tests:
+              - not_null
+          - name: subsidiary
+            description: Subsidiary code, e.g. "SUB_A". FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: debit_amount
+            description: Debit side of the entry in PHP. Zero for credit-normal accounts.
+          - name: credit_amount
+            description: Credit side of the entry in PHP. Zero for debit-normal accounts.
+          - name: net_amount
+            description: >
+              Signed net PHP amount. Positive for expenses (debit-normal),
+              negative for revenue (credit-normal).
+          - name: currency
+            description: Source currency code. All data is PHP in this dataset.
+          - name: exchange_rate
+            description: FX rate to PHP. 1.0 for all PHP entries.
+          - name: amount_php
+            description: Functional PHP amount after FX conversion.
+          - name: description
+            description: Free-text description of the journal entry.
+          - name: approved_by
+            description: Name of the approver on record.
+          - name: source_doc
+            description: Supporting document reference, e.g. "DOC-123456".
+          - name: _source
+            description: ETL source tag. Defaults to 'ERP' for this table.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+      - name: raw_budget
+        description: >
+          Annual budget uploads by GL account × cost center × subsidiary for
+          FY2024 and FY2025. Approved once per year by CFO and treated as
+          static reference data. Loaded via BUDGET_UPLOAD source.
+        columns:
+          - name: fiscal_year
+            description: Budget fiscal year (2024 or 2025).
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [2024, 2025]
+          - name: fiscal_month
+            description: Budget month integer 1–12.
+            tests:
+              - not_null
+          - name: period_name
+            description: Human-readable period label, e.g. "2024-03".
+          - name: gl_account
+            description: GL account code. FK to dim_account.
+            tests:
+              - not_null
+          - name: account_name
+            description: Descriptive name of the GL account.
+          - name: account_type
+            description: "High-level account classification: Revenue, COGS, OpEx, Finance Cost, Tax."
+          - name: pnl_line
+            description: P&L grouping label matching the actuals classification.
+          - name: cost_center
+            description: Cost center code. FK to dim_cost_center.
+            tests:
+              - not_null
+          - name: subsidiary
+            description: Subsidiary code. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: budget_amount
+            description: Budgeted PHP amount for this account/CC/subsidiary/month.
+            tests:
+              - not_null
+          - name: currency
+            description: Currency of the budget entry. Always PHP.
+          - name: scenario
+            description: Budget scenario tag. Always 'ANNUAL_BUDGET' for this table.
+          - name: version
+            description: Budget version string, e.g. "v1.0".
+          - name: approved_date
+            description: Date the budget was formally approved (typically prior Nov 30).
+          - name: approved_by
+            description: Approver role. Always 'CFO' for annual budgets.
+          - name: _source
+            description: ETL source tag. Defaults to 'BUDGET_UPLOAD'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+      - name: raw_forecast
+        description: >
+          Rolling forecast versions uploaded quarterly by the FP&A team.
+          Three versions per fiscal year: RF1 (Q1 reforecast), RF2 (Q2),
+          RF3 (Q3). Forecast amounts reflect actuals-to-date plus forward
+          estimates with ±15% drift applied.
+        columns:
+          - name: fiscal_year
+            description: Forecast fiscal year. Always 2024 in this dataset.
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Forecast month integer 1–12.
+            tests:
+              - not_null
+          - name: period_name
+            description: Human-readable period label, e.g. "2024-06".
+          - name: gl_account
+            description: GL account code. FK to dim_account.
+            tests:
+              - not_null
+          - name: cost_center
+            description: Cost center code. FK to dim_cost_center.
+            tests:
+              - not_null
+          - name: subsidiary
+            description: Subsidiary code. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: forecast_amount
+            description: Forecasted PHP amount for this account/CC/subsidiary/month/version.
+            tests:
+              - not_null
+          - name: currency
+            description: Currency of the forecast amount. Always PHP.
+          - name: scenario
+            description: Scenario tag. Always 'REVISED_FORECAST' for this table.
+          - name: version
+            description: Forecast version: RF1, RF2, or RF3.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["RF1", "RF2", "RF3"]
+          - name: created_date
+            description: Date the forecast version was submitted.
+          - name: created_by
+            description: Team or individual who submitted the forecast.
+          - name: _source
+            description: ETL source tag. Defaults to 'FORECAST_UPLOAD'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+      - name: raw_bank_statements
+        description: >
+          Bank transaction feeds across 6 subsidiary bank accounts (BDO, BPI,
+          Metrobank, LandBank) covering 18 months. Includes operating,
+          payroll, and tax payment accounts. Used as the source for the
+          indirect cash flow statement.
+        columns:
+          - name: bank_ref
+            description: Unique bank transaction reference ID (12-char UUID prefix).
+            tests:
+              - not_null
+              - unique
+          - name: txn_date
+            description: Calendar date of the bank transaction.
+            tests:
+              - not_null
+          - name: fiscal_year
+            description: Fiscal year derived from txn_date.
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Fiscal month derived from txn_date (1–12).
+            tests:
+              - not_null
+          - name: bank_account
+            description: Internal bank account identifier, e.g. "BDO-SUB-A-OPS".
+          - name: subsidiary
+            description: Subsidiary the bank account belongs to. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: bank_name
+            description: Name of the bank (BDO, BPI, Metrobank, LandBank).
+          - name: account_type
+            description: Bank account function — OPERATING, PAYROLL, or TAX_PAYMENT.
+            tests:
+              - accepted_values:
+                  values: ["OPERATING", "PAYROLL", "TAX_PAYMENT"]
+          - name: description
+            description: Transaction description, e.g. "Customer Payment", "Payroll Release".
+          - name: reference
+            description: Bank reference number.
+          - name: debit_amount
+            description: Amount debited from the account (outflow). Zero for credits.
+          - name: credit_amount
+            description: Amount credited to the account (inflow). Zero for debits.
+          - name: net_amount
+            description: >
+              Signed net PHP amount. Positive = inflow, negative = outflow.
+          - name: running_balance
+            description: Running account balance after this transaction.
+          - name: currency
+            description: Transaction currency. Always PHP.
+          - name: cf_category
+            description: >
+              Cash flow statement category. Operating for day-to-day operations
+              and payroll; Financing for tax payment accounts.
+            tests:
+              - accepted_values:
+                  values: ["Operating", "Investing", "Financing"]
+          - name: _source
+            description: ETL source tag. Defaults to 'BANK_FEED'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+      - name: raw_manual_adjustments
+        description: >
+          Finance team Excel adjustments uploaded during month-end close.
+          Covers accruals, reversals, reclassifications, and corrections
+          posted within 3 days of month-end (around the 25th–28th).
+          These are merged into stg_gl_actuals and treated as first-class
+          GL entries downstream.
+        columns:
+          - name: adjustment_id
+            description: UUID primary key for each adjustment.
+            tests:
+              - not_null
+              - unique
+          - name: posting_date
+            description: Date the adjustment was posted (typically 25th–28th of month).
+            tests:
+              - not_null
+          - name: fiscal_year
+            description: Fiscal year of the adjustment.
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Fiscal month of the adjustment (1–12).
+            tests:
+              - not_null
+          - name: gl_account
+            description: GL account code. FK to dim_account.
+            tests:
+              - not_null
+          - name: cost_center
+            description: Cost center code. FK to dim_cost_center.
+            tests:
+              - not_null
+          - name: subsidiary
+            description: Subsidiary code. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: amount
+            description: >
+              Signed PHP amount. Positive for ACCRUAL/RECLASSIFICATION/CORRECTION;
+              negative for REVERSAL.
+            tests:
+              - not_null
+          - name: adjustment_type
+            description: Type of manual adjustment submitted by the finance team.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["ACCRUAL", "REVERSAL", "RECLASSIFICATION", "CORRECTION"]
+          - name: description
+            description: Free-text description of the adjustment.
+          - name: supporting_doc
+            description: Filename of the supporting Excel workbook, e.g. "ADJ-123456.xlsx".
+          - name: prepared_by
+            description: Name of the finance team member who prepared the adjustment.
+          - name: approved_by
+            description: Role of the approver (CFO, Controller, Finance Manager, VP Finance).
+          - name: approved_date
+            description: Date the adjustment was approved (typically posting_date + 1 day).
+          - name: notes
+            description: Additional free-text notes.
+          - name: _source
+            description: ETL source tag. Defaults to 'EXCEL_UPLOAD'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+  - name: control
+    database: fpna_db
+    schema: control
+    description: >
+      Operational control tables managed by the finance team. Separate from
+      bronze because these records are mutated (not append-only) — the finance
+      team flips period_status from OPEN to CLOSED after each month-end close
+      using scripts/close_period.py.
+    tables:
+      - name: period_lock
+        description: >
+          Tracks OPEN/CLOSED status per fiscal period. One row per
+          fiscal_year × fiscal_month combination. Seeded as OPEN for all
+          periods on first pipeline run. Finance team runs close_period.py
+          to flip a period to CLOSED after final postings are approved.
+          dim_date reads from this table live so period_status always
+          reflects the current close state without requiring a dbt refresh.
+        columns:
+          - name: fiscal_year
+            description: Fiscal year of the period (e.g. 2024).
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Fiscal month integer 1–12.
+            tests:
+              - not_null
+          - name: period_status
+            description: >
+              Current close status. OPEN = postings still accepted;
+              CLOSED = period locked, no further GL entries permitted.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["OPEN", "CLOSED"]
+          - name: closed_date
+            description: Date the period was formally closed. NULL if still OPEN.
+          - name: closed_by
+            description: Name or role of the person who closed the period. NULL if still OPEN.

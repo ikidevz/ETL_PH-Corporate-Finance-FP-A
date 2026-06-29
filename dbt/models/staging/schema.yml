@@ -1,0 +1,325 @@
+version: 2
+
+models:
+  - name: stg_gl_actuals
+    description: >
+      Cleaned, typed staging view that unifies two bronze sources into a
+      single GL actuals feed: ERP journal entries (raw_gl_actuals) and
+      finance team Excel uploads (raw_manual_adjustments). Both are treated
+      as first-class GL entries downstream. Debit/credit amounts are
+      re-derived into a consistent net_amount regardless of source.
+      This model is the single source of truth for fct_gl_actuals.
+    columns:
+      - name: journal_id
+        description: >
+          Unique identifier for each GL line. UUID from ERP; adjustment_id
+          from Excel uploads. Used as the incremental unique key in
+          fct_gl_actuals.
+        tests:
+          - not_null
+          - unique
+      - name: posting_date
+        description: Calendar date the entry was posted or the adjustment was submitted.
+        tests:
+          - not_null
+      - name: fiscal_year
+        description: Fiscal year extracted from posting_date. Integer.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month extracted from posting_date (1–12).
+        tests:
+          - not_null
+      - name: gl_account
+        description: GL account code. FK to dim_account via gl_account_code.
+        tests:
+          - not_null
+      - name: account_type
+        description: >
+          Account classification from ERP source. NULL for Excel adjustment
+          rows (account_type is resolved in dim_account join in fct_gl_actuals).
+      - name: cost_center
+        description: Cost center code. FK to dim_cost_center via cost_center_code.
+        tests:
+          - not_null
+      - name: subsidiary
+        description: Subsidiary code. FK to dim_subsidiary via subsidiary_code.
+        tests:
+          - not_null
+      - name: debit_amount
+        description: >
+          PHP debit amount. For Excel adjustments: positive amount value;
+          zero if amount is negative.
+        tests:
+          - not_null
+      - name: credit_amount
+        description: >
+          PHP credit amount. For Excel adjustments: absolute value of negative
+          amounts; zero if amount is positive.
+        tests:
+          - not_null
+      - name: net_amount
+        description: >
+          Signed net PHP amount. Computed as debit_amount - credit_amount
+          for ERP rows; raw signed amount for Excel uploads.
+        tests:
+          - not_null
+      - name: currency
+        description: Source currency code. Always 'PHP' in this dataset.
+      - name: entry_source
+        description: >
+          Identifies where this row originated. 'ERP' for journal entries;
+          'EXCEL_UPLOAD' for manual adjustments.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["ERP", "EXCEL_UPLOAD"]
+      - name: _loaded_at
+        description: >
+          Bronze load timestamp inherited from source. Used as the
+          incremental watermark in fct_gl_actuals.
+        tests:
+          - not_null
+
+  - name: stg_budget
+    description: >
+      Cleaned staging view over bronze.raw_budget. Renames budget_amount
+      to budget_amount_php for clarity and filters out rows with null
+      amounts or fiscal years. Budget data is static — approved once per
+      year by CFO for FY2024 and FY2025.
+    columns:
+      - name: fiscal_year
+        description: Budget fiscal year (2024 or 2025).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [2024, 2025]
+      - name: fiscal_month
+        description: Budget month integer 1–12.
+        tests:
+          - not_null
+      - name: gl_account
+        description: GL account code. FK to dim_account via gl_account_code.
+        tests:
+          - not_null
+      - name: account_type
+        description: >
+          Account classification from bronze.raw_budget. Covers all IS
+          account types: Revenue, COGS, OpEx, Finance Cost, Tax.
+          Budget is only built for P&L (IS) accounts — BS accounts
+          (Asset, Liability, Equity) are not budgeted at the GL line level.
+        tests:
+          - accepted_values:
+              values: ["Revenue", "COGS", "OpEx", "Finance Cost", "Tax"]
+      - name: cost_center
+        description: Cost center code. FK to dim_cost_center.
+        tests:
+          - not_null
+      - name: subsidiary
+        description: Subsidiary code. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: budget_amount_php
+        description: Budgeted PHP amount for this account × CC × subsidiary × period.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500000000
+      - name: scenario
+        description: Budget scenario label. Always 'ANNUAL_BUDGET'.
+      - name: version
+        description: Budget version string, e.g. "v1.0".
+        tests:
+          - not_null
+      - name: _loaded_at
+        description: Bronze load timestamp inherited from source.
+        tests:
+          - not_null
+
+  - name: stg_forecast
+    description: >
+      Cleaned staging view over bronze.raw_forecast. Renames forecast_amount
+      to forecast_amount_php. Three rolling forecast versions per fiscal year:
+      RF1 (submitted April 15), RF2 (July 15), RF3 (October 15). Used as
+      the source for fct_forecast.
+    columns:
+      - name: fiscal_year
+        description: Forecast fiscal year. 2024 in this dataset.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Forecast month integer 1–12.
+        tests:
+          - not_null
+      - name: gl_account
+        description: GL account code. FK to dim_account.
+        tests:
+          - not_null
+      - name: cost_center
+        description: Cost center code. FK to dim_cost_center.
+        tests:
+          - not_null
+      - name: subsidiary
+        description: Subsidiary code. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: forecast_amount_php
+        description: Forecasted PHP amount for this account × CC × subsidiary × period × version.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500000000
+      - name: scenario
+        description: Scenario tag. Always 'REVISED_FORECAST'.
+      - name: version
+        description: Forecast version — RF1, RF2, or RF3.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["RF1", "RF2", "RF3"]
+      - name: created_date
+        description: Date the forecast version was submitted to the FP&A system.
+      - name: created_by
+        description: Team or individual who submitted the forecast version.
+      - name: _loaded_at
+        description: Bronze load timestamp inherited from source.
+        tests:
+          - not_null
+
+  - name: stg_bank_statements
+    description: >
+      Cleaned staging view over bronze.raw_bank_statements. Standardises
+      column names and ensures txn_date is cast correctly. Covers 18 months
+      of feeds across 6 subsidiary bank accounts. Used as the source for
+      fct_cash_flow.
+    columns:
+      - name: bank_ref
+        description: Unique bank transaction reference. Natural key for fct_cash_flow.
+        tests:
+          - not_null
+          - unique
+      - name: txn_date
+        description: Calendar date of the bank transaction.
+        tests:
+          - not_null
+      - name: fiscal_year
+        description: Fiscal year derived from txn_date.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month derived from txn_date.
+        tests:
+          - not_null
+      - name: bank_account
+        description: Internal bank account identifier, e.g. "BDO-SUB-A-OPS".
+      - name: subsidiary
+        description: Subsidiary the bank account belongs to. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: bank_name
+        description: Name of the bank institution.
+      - name: account_type
+        description: Bank account function — OPERATING, PAYROLL, or TAX_PAYMENT.
+        tests:
+          - accepted_values:
+              values: ["OPERATING", "PAYROLL", "TAX_PAYMENT"]
+      - name: description
+        description: Transaction description from the bank feed.
+      - name: reference
+        description: Bank reference number.
+      - name: debit_amount
+        description: Amount debited (outflow). Zero for credit transactions.
+        tests:
+          - not_null
+      - name: credit_amount
+        description: Amount credited (inflow). Zero for debit transactions.
+        tests:
+          - not_null
+      - name: net_amount
+        description: Signed net PHP amount. Positive = inflow, negative = outflow.
+        tests:
+          - not_null
+      - name: running_balance
+        description: Cumulative account balance after this transaction.
+      - name: currency
+        description: Transaction currency. Always PHP.
+      - name: cf_category
+        description: Cash flow classification — Operating, Investing, or Financing.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Operating", "Investing", "Financing"]
+      - name: _loaded_at
+        description: Bronze load timestamp. Used as incremental watermark in fct_cash_flow.
+        tests:
+          - not_null
+
+  - name: stg_manual_adjustments
+    description: >
+      Cleaned staging view over bronze.raw_manual_adjustments. Standardises
+      types and validates adjustment_type values. These records feed into
+      stg_gl_actuals via UNION ALL — this staging model exists for
+      independent testability before the merge.
+    columns:
+      - name: adjustment_id
+        description: UUID primary key. Becomes journal_id in stg_gl_actuals.
+        tests:
+          - not_null
+          - unique
+      - name: posting_date
+        description: Date the adjustment was posted (typically 25th–28th of month).
+        tests:
+          - not_null
+      - name: fiscal_year
+        description: Fiscal year of the adjustment.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month of the adjustment (1–12).
+        tests:
+          - not_null
+      - name: gl_account
+        description: GL account code. FK to dim_account.
+        tests:
+          - not_null
+      - name: cost_center
+        description: Cost center code. FK to dim_cost_center.
+        tests:
+          - not_null
+      - name: subsidiary
+        description: Subsidiary code. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: amount
+        description: >
+          Signed PHP amount. Positive for ACCRUAL/RECLASSIFICATION/CORRECTION;
+          negative for REVERSAL.
+        tests:
+          - not_null
+      - name: adjustment_type
+        description: Type of manual adjustment.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["ACCRUAL", "REVERSAL", "RECLASSIFICATION", "CORRECTION"]
+      - name: description
+        description: Free-text description provided by the finance team.
+      - name: supporting_doc
+        description: Supporting Excel workbook filename.
+      - name: prepared_by
+        description: Finance team member who prepared the adjustment.
+      - name: approved_by
+        description: Approver role (CFO, Controller, Finance Manager, VP Finance).
+        tests:
+          - accepted_values:
+              values: ["CFO", "Controller", "Finance Manager", "VP Finance"]
+      - name: approved_date
+        description: Date the adjustment was approved.
+      - name: notes
+        description: Additional free-text notes.
+      - name: _loaded_at
+        description: Bronze load timestamp inherited from source.
+        tests:
+          - not_null

@@ -1,0 +1,368 @@
+version: 2
+
+models:
+  - name: rpt_variance_analysis
+    description: >
+      Core FP&A deliverable. Side-by-side view of Actual vs Budget vs
+      Forecast for every GL account × cost center × subsidiary × period
+      combination. Uses FULL OUTER JOIN across all three fact tables so
+      that accounts with budget but no actuals (and vice versa) still
+      appear — a common trap that silently breaks finance dashboards
+      when INNER JOINs are used. Variance amounts and percentage are
+      pre-computed for direct use in BI tools without further calculation.
+      This model is the single source for rpt_pnl_summary.
+    columns:
+      - name: fiscal_year
+        description: Fiscal year of the row. COALESCE across actuals, budget, forecast.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month integer 1–12. COALESCE across all three sources.
+        tests:
+          - not_null
+      - name: account_key
+        description: FK to dim_account. Shared join key across actuals, budget, forecast.
+        tests:
+          - not_null
+      - name: gl_account_code
+        description: GL account natural key, e.g. "4001". From dim_account join.
+        tests:
+          - not_null
+      - name: account_name
+        description: Descriptive GL account name, e.g. "Revenue - Retail".
+        tests:
+          - not_null
+      - name: account_type
+        description: >
+          Account classification from dim_account. Variance analysis covers
+          IS accounts only (Revenue, COGS, OpEx, Finance Cost, Tax) —
+          BS accounts (Asset, Liability, Equity) are excluded because
+          budget and forecast are not posted at the BS account level.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Revenue", "COGS", "OpEx", "Finance Cost", "Tax"]
+      - name: pnl_line
+        description: P&L grouping label used in rpt_pnl_summary aggregation.
+        tests:
+          - not_null
+      - name: cost_center_code
+        description: Cost center natural key, e.g. "CC-RETAIL-MNL".
+        tests:
+          - not_null
+      - name: department
+        description: Department name from dim_cost_center.
+        tests:
+          - not_null
+      - name: subsidiary_code
+        description: Subsidiary natural key, e.g. "SUB_A".
+        tests:
+          - not_null
+      - name: subsidiary_name
+        description: Full legal name of the subsidiary.
+        tests:
+          - not_null
+      - name: actual_php
+        description: >
+          Sum of net_amount_php from fct_gl_actuals for this
+          account × CC × subsidiary × period. COALESCE to 0 when
+          no actuals exist (e.g. budget line with no posting yet).
+        tests:
+          - not_null
+      - name: budget_php
+        description: >
+          Sum of budget_amount_php from fct_budget for this
+          account × CC × subsidiary × period. COALESCE to 0 when
+          no budget line exists.
+        tests:
+          - not_null
+      - name: forecast_php
+        description: >
+          Sum of forecast_amount_php from fct_forecast (latest RF version)
+          for this account × CC × subsidiary × period. COALESCE to 0 when
+          no forecast exists.
+        tests:
+          - not_null
+      - name: variance_vs_budget_php
+        description: >
+          actual_php - budget_php. Positive = over-budget spend or
+          under-target revenue (unfavourable); sign interpretation
+          depends on account_type and sign_convention.
+        tests:
+          - not_null
+      - name: variance_vs_forecast_php
+        description: >
+          actual_php - forecast_php. Used to assess forecast accuracy
+          and flag significant misses for management commentary.
+        tests:
+          - not_null
+      - name: variance_pct_vs_budget
+        description: >
+          Percentage variance: (actual - budget) / ABS(budget) × 100.
+          NULL when budget_php = 0 to avoid division-by-zero. Rounded
+          to 2 decimal places. Used in variance heatmap dashboards.
+
+  - name: rpt_pnl_summary
+    description: >
+      Consolidated P&L statement by subsidiary and period, aggregated from
+      rpt_variance_analysis. Produces the standard waterfall structure:
+      Revenue → COGS → Gross Profit → OpEx → EBITDA → Finance Costs →
+      Net Income. Each metric is a pre-aggregated column for direct use
+      in BI P&L waterfall charts without additional pivoting.
+    columns:
+      - name: fiscal_year
+        description: Fiscal year of the P&L summary row.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month of the P&L summary row (1–12).
+        tests:
+          - not_null
+      - name: subsidiary_code
+        description: Subsidiary natural key, e.g. "SUB_A".
+        tests:
+          - not_null
+      - name: subsidiary_name
+        description: Full legal name of the subsidiary.
+        tests:
+          - not_null
+      - name: revenue
+        description: >
+          Total actual PHP revenue (account_type = 'Revenue'). Includes
+          all IS revenue accounts: 4001 Retail, 4002 Services,
+          4003 Freight, 4004 Rental. Credit-normal — positive value
+          means income received.
+        tests:
+          - not_null
+      - name: cogs
+        description: >
+          Total actual PHP cost of goods sold (account_type = 'COGS').
+          Includes 5001 COGS, 5002 Direct Labor, 5003 Freight & Logistics.
+          Debit-normal — positive value means cost incurred.
+        tests:
+          - not_null
+      - name: gross_profit
+        description: >
+          revenue - cogs. The primary margin metric. Negative gross profit
+          triggers automatic CFO alert in rpt_executive_dashboard.
+        tests:
+          - not_null
+      - name: opex
+        description: >
+          Total actual PHP operating expenses (account_type = 'OpEx').
+          Includes all 6xxx accounts: Salaries, Rent, Marketing, D&A,
+          Professional Fees, Travel, IT. Debit-normal.
+        tests:
+          - not_null
+      - name: ebitda
+        description: >
+          gross_profit - opex. Proxy for operating cash generation before
+          financing and tax. Note: D&A is included in opex here; in a
+          full EBITDA calc it would be added back. Used as the primary
+          KPI in executive dashboards.
+        tests:
+          - not_null
+      - name: finance_cost
+        description: >
+          Total actual PHP financing costs (account_type = 'Finance Cost').
+          Includes 7001 Interest Expense and 7002 Bank Charges.
+        tests:
+          - not_null
+      - name: tax_expense
+        description: >
+          Total actual PHP income tax expense (account_type = 'Tax').
+          Maps to 8001 Income Tax Expense only. Separated from finance_cost
+          to align with standard P&L waterfall presentation.
+        tests:
+          - not_null
+      - name: net_income
+        description: >
+          Sum of all actual_php amounts across all account_types for this
+          subsidiary × period. Equivalent to ebitda - finance_cost - tax_expense.
+          Uses sign_convention so Revenue nets positively and expense
+          accounts net negatively.
+        tests:
+          - not_null
+
+  - name: rpt_cash_flow_statement
+    description: >
+      Indirect cash flow statement by subsidiary and period, aggregated
+      from fct_cash_flow. Splits cash movements into the three standard
+      categories: Operating, Investing, Financing. Net cash movement is
+      the sum across all categories. Used to assess liquidity and working
+      capital by subsidiary each month.
+    columns:
+      - name: fiscal_year
+        description: Fiscal year of the cash flow summary row.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month of the cash flow summary row (1–12).
+        tests:
+          - not_null
+      - name: subsidiary_code
+        description: Subsidiary natural key, e.g. "SUB_A". From dim_subsidiary join.
+        tests:
+          - not_null
+      - name: operating_cf
+        description: >
+          Net PHP cash from operating activities (cf_category = 'Operating').
+          Includes customer receipts, vendor payments, payroll, and utilities.
+          Positive = net inflow.
+        tests:
+          - not_null
+      - name: investing_cf
+        description: >
+          Net PHP cash from investing activities (cf_category = 'Investing').
+          Typically outflows for capex; inflows for asset disposals.
+          Zero in this dataset — no investing transactions simulated.
+        tests:
+          - not_null
+      - name: financing_cf
+        description: >
+          Net PHP cash from financing activities (cf_category = 'Financing').
+          Includes tax payment accounts (VAT, income tax, withholding tax).
+          Typically negative (cash out to BIR).
+        tests:
+          - not_null
+      - name: net_cash_movement
+        description: >
+          operating_cf + investing_cf + financing_cf. Total net PHP cash
+          change for the subsidiary in this period. Negative for periods
+          with heavy tax remittances or capex.
+        tests:
+          - not_null
+
+  - name: rpt_executive_dashboard
+    description: >
+      CFO-level KPI rollup across all subsidiaries, filtered to the latest
+      closed period via control.period_lock. Surfaces the key metrics for a
+      single-screen executive summary: P&L KPIs, margin percentages, budget
+      variance, and cash flow status. Also computes three derived flag columns
+      (profitability_status, operating_cf_status, budget_status) to drive
+      conditional formatting in dashboards without additional BI logic.
+      This model is a display layer — no column-level tests beyond not_null
+      except accepted_values on flag columns. All data quality is enforced
+      upstream in the core and variance models.
+    columns:
+      - name: fiscal_year
+        description: Fiscal year of the latest closed period in this rollup.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month of the latest closed period in this rollup.
+        tests:
+          - not_null
+      - name: total_revenue
+        description: >
+          Consolidated PHP revenue across all subsidiaries for the period.
+          Sourced from rpt_variance_analysis WHERE pnl_line = 'Net Revenue'.
+        tests:
+          - not_null
+      - name: total_cogs
+        description: >
+          Consolidated PHP COGS across all subsidiaries.
+          Sourced from rpt_variance_analysis WHERE pnl_line = 'COGS'.
+        tests:
+          - not_null
+      - name: gross_profit
+        description: total_revenue - total_cogs. Pre-computed for direct dashboard use.
+        tests:
+          - not_null
+      - name: gross_margin_pct
+        description: >
+          gross_profit / total_revenue × 100. Rounded to 2 decimal places.
+          NULL if total_revenue = 0.
+      - name: personnel_costs
+        description: >
+          Consolidated PHP personnel costs (pnl_line = 'Personnel Costs').
+          Useful for headcount-driven variance commentary.
+        tests:
+          - not_null
+      - name: ebitda
+        description: >
+          Consolidated PHP EBITDA across all subsidiaries. Computed from
+          rpt_variance_analysis as the sum of Revenue, COGS, Personnel
+          Costs, Occupancy, Marketing, D&A, and Admin & General pnl_lines.
+        tests:
+          - not_null
+      - name: ebitda_margin_pct
+        description: >
+          ebitda / total_revenue × 100. Rounded to 2 decimal places.
+          NULL if total_revenue = 0.
+      - name: finance_costs
+        description: >
+          Consolidated PHP financing costs (pnl_line = 'Finance Costs').
+          Includes 7001 Interest Expense and 7002 Bank Charges.
+        tests:
+          - not_null
+      - name: net_income
+        description: >
+          Consolidated PHP net income across all subsidiaries.
+          Sum of all actual_php for the period.
+        tests:
+          - not_null
+      - name: net_margin_pct
+        description: >
+          net_income / total_revenue × 100. Rounded to 2 decimal places.
+          NULL if total_revenue = 0.
+      - name: total_budget
+        description: Consolidated PHP budget for the period (from rpt_variance_analysis).
+        tests:
+          - not_null
+      - name: total_forecast
+        description: Consolidated PHP forecast for the period.
+        tests:
+          - not_null
+      - name: total_variance_vs_budget
+        description: net_income - total_budget. Positive = over-plan performance.
+        tests:
+          - not_null
+      - name: variance_pct_vs_budget
+        description: >
+          total_variance_vs_budget / ABS(total_budget) × 100. Rounded to 2
+          decimal places. NULL if total_budget = 0.
+      - name: operating_cf
+        description: Consolidated PHP operating cash flow from rpt_cash_flow_statement.
+        tests:
+          - not_null
+      - name: investing_cf
+        description: Consolidated PHP investing cash flow. Zero in this dataset.
+        tests:
+          - not_null
+      - name: financing_cf
+        description: >
+          Consolidated PHP financing cash flow (tax remittances).
+          Typically negative.
+        tests:
+          - not_null
+      - name: net_cash_movement
+        description: operating_cf + investing_cf + financing_cf. Total net cash change.
+        tests:
+          - not_null
+      - name: profitability_status
+        description: >
+          Derived executive flag. 'PROFITABLE' if net_income > 0;
+          'BREAK-EVEN' if = 0; 'LOSS' if < 0.
+          Used for conditional colour coding in dashboards.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["PROFITABLE", "BREAK-EVEN", "LOSS"]
+      - name: operating_cf_status
+        description: >
+          Derived flag for operating cash flow health.
+          'POSITIVE' if operating_cf > 0; 'NEGATIVE' otherwise.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["POSITIVE", "NEGATIVE"]
+      - name: budget_status
+        description: >
+          Derived budget discipline flag. 'ON-BUDGET' if variance ≥ 0;
+          'WITHIN-5%' if variance is between -5% and 0%; 'OVER-BUDGET'
+          if variance < -5%. Used for executive RAG status indicators.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["ON-BUDGET", "WITHIN-5%", "OVER-BUDGET"]
