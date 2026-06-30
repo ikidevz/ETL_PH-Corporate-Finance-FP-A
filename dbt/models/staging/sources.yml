@@ -329,6 +329,151 @@ sources:
           - name: _loaded_at
             description: Timestamp of when the row was loaded into Snowflake bronze.
 
+      - name: raw_employee_roster
+        description: >
+          HRIS headcount and comp roster. One row per employee, including
+          terminated employees (employment_status = TERMINATED). Used as
+          the source for dim_employee.
+        columns:
+          - name: employee_id
+            description: Unique employee identifier from HRIS.
+            tests:
+              - not_null
+              - unique
+          - name: full_name
+            description: Employee full name.
+          - name: cost_center
+            description: Cost center code. FK to dim_cost_center.
+            tests:
+              - not_null
+          - name: subsidiary
+            description: Subsidiary code. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: job_level
+            description: Staff, Senior, Manager, Director, or VP.
+          - name: monthly_base_php
+            description: Monthly base salary in PHP.
+            tests:
+              - not_null
+          - name: hire_date
+            description: Date of hire.
+            tests:
+              - not_null
+          - name: termination_date
+            description: Date of termination. NULL for active employees.
+          - name: employment_status
+            description: ACTIVE or TERMINATED.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["ACTIVE", "TERMINATED"]
+          - name: _source
+            description: ETL source tag. Defaults to 'HRIS'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+      - name: raw_ap_ar
+        description: >
+          Open and settled accounts payable / receivable invoices from the
+          ERP. Used as the source for fct_ap_ar and working-capital metrics.
+        columns:
+          - name: invoice_id
+            description: Unique invoice identifier, prefixed AP- or AR-.
+            tests:
+              - not_null
+              - unique
+          - name: doc_type
+            description: AP (we owe) or AR (owed to us).
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["AP", "AR"]
+          - name: invoice_date
+            description: Date the invoice was raised.
+            tests:
+              - not_null
+          - name: due_date
+            description: Payment due date based on invoice terms (15/30/45/60 days).
+          - name: fiscal_year
+            description: Fiscal year of the invoice.
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Fiscal month of the invoice (1–12).
+            tests:
+              - not_null
+          - name: subsidiary
+            description: Subsidiary code. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: counterparty
+            description: Vendor (AP) or customer (AR) name.
+          - name: amount_php
+            description: Invoice amount in PHP, unsigned magnitude.
+            tests:
+              - not_null
+          - name: status
+            description: OPEN, PAID, or OVERDUE.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["OPEN", "PAID", "OVERDUE"]
+          - name: paid_date
+            description: Date paid, if status = PAID. NULL otherwise.
+          - name: _source
+            description: ETL source tag. Defaults to 'ERP'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
+      - name: raw_intercompany
+        description: >
+          Cross-subsidiary intercompany postings — shared-service charge-outs,
+          intercompany loans, and management fees. Used as the source for
+          fct_intercompany and consolidation eliminations.
+        columns:
+          - name: intercompany_id
+            description: UUID primary key for each intercompany posting.
+            tests:
+              - not_null
+              - unique
+          - name: posting_date
+            description: Date the intercompany posting was made.
+            tests:
+              - not_null
+          - name: fiscal_year
+            description: Fiscal year of the posting.
+            tests:
+              - not_null
+          - name: fiscal_month
+            description: Fiscal month of the posting (1–12).
+            tests:
+              - not_null
+          - name: from_subsidiary
+            description: Subsidiary that pays / charges out. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: to_subsidiary
+            description: Subsidiary that receives the charge. FK to dim_subsidiary.
+            tests:
+              - not_null
+          - name: ic_type
+            description: Type of intercompany posting.
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["SHARED_SERVICE_CHARGE", "INTERCOMPANY_LOAN", "MGMT_FEE"]
+          - name: amount_php
+            description: Posting amount in PHP.
+            tests:
+              - not_null
+          - name: description
+            description: Free-text description of the posting.
+          - name: _source
+            description: ETL source tag. Defaults to 'ERP'.
+          - name: _loaded_at
+            description: Timestamp of when the row was loaded into Snowflake bronze.
+
   - name: control
     database: fpna_db
     schema: control

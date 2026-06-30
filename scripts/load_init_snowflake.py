@@ -134,6 +134,47 @@ bronze_tables = {
         notes            VARCHAR,
         _source          VARCHAR   DEFAULT 'EXCEL_UPLOAD',
         _loaded_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP()""",
+
+    "raw_employee_roster": """
+        employee_id        VARCHAR,
+        full_name          VARCHAR,
+        cost_center        VARCHAR,
+        subsidiary         VARCHAR,
+        job_level          VARCHAR,
+        monthly_base_php   NUMERIC(18,2),
+        hire_date          DATE,
+        termination_date   DATE,
+        employment_status  VARCHAR,
+        _source            VARCHAR   DEFAULT 'HRIS',
+        _loaded_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP()""",
+
+    "raw_ap_ar": """
+        invoice_id       VARCHAR,
+        doc_type         VARCHAR,
+        invoice_date     DATE,
+        due_date         DATE,
+        fiscal_year      INTEGER,
+        fiscal_month     INTEGER,
+        subsidiary       VARCHAR,
+        counterparty     VARCHAR,
+        amount_php       NUMERIC(18,2),
+        status           VARCHAR,
+        paid_date        DATE,
+        _source          VARCHAR   DEFAULT 'ERP',
+        _loaded_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP()""",
+
+    "raw_intercompany": """
+        intercompany_id  VARCHAR,
+        posting_date     DATE,
+        fiscal_year      INTEGER,
+        fiscal_month     INTEGER,
+        from_subsidiary  VARCHAR,
+        to_subsidiary    VARCHAR,
+        ic_type          VARCHAR,
+        amount_php       NUMERIC(18,2),
+        description      VARCHAR,
+        _source          VARCHAR   DEFAULT 'ERP',
+        _loaded_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP()""",
 }
 
 for table, columns in bronze_tables.items():

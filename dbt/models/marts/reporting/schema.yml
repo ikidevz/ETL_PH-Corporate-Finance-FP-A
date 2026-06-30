@@ -67,6 +67,8 @@ models:
           Sum of net_amount_php from fct_gl_actuals for this
           account × CC × subsidiary × period. COALESCE to 0 when
           no actuals exist (e.g. budget line with no posting yet).
+          Already a positive magnitude per account type, per
+          dim_account.sign_convention applied upstream in fct_gl_actuals.
         tests:
           - not_null
       - name: budget_php
@@ -130,8 +132,9 @@ models:
         description: >
           Total actual PHP revenue (account_type = 'Revenue'). Includes
           all IS revenue accounts: 4001 Retail, 4002 Services,
-          4003 Freight, 4004 Rental. Credit-normal — positive value
-          means income received.
+          4003 Freight, 4004 Rental. Credit-normal in the GL, but
+          normalized positive here via dim_account.sign_convention —
+          positive value means income received.
         tests:
           - not_null
       - name: cogs
@@ -143,20 +146,22 @@ models:
           - not_null
       - name: gross_profit
         description: >
-          revenue - cogs. The primary margin metric. Negative gross profit
-          triggers automatic CFO alert in rpt_executive_dashboard.
+          revenue - cogs (explicit subtraction). The primary margin metric.
+          Negative gross profit triggers automatic CFO alert in
+          rpt_executive_dashboard.
         tests:
           - not_null
       - name: opex
         description: >
           Total actual PHP operating expenses (account_type = 'OpEx').
           Includes all 6xxx accounts: Salaries, Rent, Marketing, D&A,
-          Professional Fees, Travel, IT. Debit-normal.
+          Professional Fees, Travel, IT. Debit-normal, positive magnitude.
         tests:
           - not_null
       - name: ebitda
         description: >
-          gross_profit - opex. Proxy for operating cash generation before
+          revenue - cogs - opex (explicit subtraction, not a blind SUM
+          across types). Proxy for operating cash generation before
           financing and tax. Note: D&A is included in opex here; in a
           full EBITDA calc it would be added back. Used as the primary
           KPI in executive dashboards.
@@ -177,10 +182,11 @@ models:
           - not_null
       - name: net_income
         description: >
-          Sum of all actual_php amounts across all account_types for this
-          subsidiary × period. Equivalent to ebitda - finance_cost - tax_expense.
-          Uses sign_convention so Revenue nets positively and expense
-          accounts net negatively.
+          revenue - cogs - opex - finance_cost - tax_expense (explicit
+          subtraction). Equivalent to ebitda - finance_cost - tax_expense.
+          All inputs are positive magnitudes per dim_account.sign_convention,
+          so this must be computed by subtraction rather than SUM(actual_php)
+          across account types.
         tests:
           - not_null
 
@@ -266,7 +272,9 @@ models:
         tests:
           - not_null
       - name: gross_profit
-        description: total_revenue - total_cogs. Pre-computed for direct dashboard use.
+        description: >
+          total_revenue - total_cogs (explicit subtraction).
+          Pre-computed for direct dashboard use.
         tests:
           - not_null
       - name: gross_margin_pct
@@ -281,9 +289,9 @@ models:
           - not_null
       - name: ebitda
         description: >
-          Consolidated PHP EBITDA across all subsidiaries. Computed from
-          rpt_variance_analysis as the sum of Revenue, COGS, Personnel
-          Costs, Occupancy, Marketing, D&A, and Admin & General pnl_lines.
+          total_revenue minus COGS, Personnel Costs, Occupancy, Marketing,
+          D&A, and Admin & General pnl_lines (explicit subtraction, not a
+          blind SUM across pnl_lines).
         tests:
           - not_null
       - name: ebitda_margin_pct
@@ -298,8 +306,9 @@ models:
           - not_null
       - name: net_income
         description: >
-          Consolidated PHP net income across all subsidiaries.
-          Sum of all actual_php for the period.
+          total_revenue minus all cost pnl_lines including Finance Costs
+          and Tax (explicit subtraction). Consolidated PHP net income
+          across all subsidiaries.
         tests:
           - not_null
       - name: net_margin_pct
@@ -366,3 +375,92 @@ models:
           - not_null
           - accepted_values:
               values: ["ON-BUDGET", "WITHIN-5%", "OVER-BUDGET"]
+
+  - name: rpt_forecast_accuracy
+    description: >
+      Actual vs each RF version (RF1/RF2/RF3) by subsidiary × period, with
+      absolute and percentage forecast error, to track whether later RF
+      versions get more accurate as the year progresses.
+    columns:
+      - name: fiscal_year
+        tests: [not_null]
+      - name: fiscal_month
+        tests: [not_null]
+      - name: forecast_version
+        description: RF1, RF2, or RF3.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["RF1", "RF2", "RF3"]
+      - name: subsidiary_code
+        tests: [not_null]
+      - name: actual_php
+        description: Actual PHP for this account × CC × subsidiary × period. COALESCE to 0.
+        tests: [not_null]
+      - name: forecast_php
+        description: Forecasted PHP amount for this RF version.
+        tests: [not_null]
+      - name: forecast_error_php
+        description: actual_php - forecast_php.
+        tests: [not_null]
+      - name: abs_pct_error
+        description: >
+          ABS(actual_php - forecast_php) / ABS(forecast_php) × 100.
+          NULL when forecast_php = 0.
+
+  - name: rpt_cost_center_variance
+    description: >
+      Actual vs Budget rolled up to cost center × period (below subsidiary
+      level), for department-head variance commentary. Same Actual/Budget
+      grain as rpt_variance_analysis, aggregated one level coarser.
+    columns:
+      - name: fiscal_year
+        tests: [not_null]
+      - name: fiscal_month
+        tests: [not_null]
+      - name: cost_center_code
+        tests: [not_null]
+      - name: department
+        tests: [not_null]
+      - name: subsidiary_code
+        tests: [not_null]
+      - name: actual_php
+        tests: [not_null]
+      - name: budget_php
+        tests: [not_null]
+      - name: variance_vs_budget_php
+        description: actual_php - budget_php.
+        tests: [not_null]
+      - name: variance_pct_vs_budget
+        description: >
+          (actual_php - budget_php) / ABS(budget_php) × 100.
+          NULL when budget_php = 0.
+
+  - name: rpt_subsidiary_consolidation
+    description: >
+      GROUP-level consolidated P&L with intercompany eliminations netted
+      out of standalone per-subsidiary revenue, sourced from
+      rpt_pnl_summary and fct_intercompany. Net income is unaffected by
+      elimination because intercompany flows are a wash at the group
+      level (one subsidiary's expense is another's revenue); only
+      revenue needs to be de-duplicated.
+    columns:
+      - name: fiscal_year
+        tests: [not_null]
+      - name: fiscal_month
+        tests: [not_null]
+      - name: standalone_revenue
+        description: SUM(revenue) across all subsidiaries from rpt_pnl_summary, before eliminations.
+        tests: [not_null]
+      - name: standalone_net_income
+        description: SUM(net_income) across all subsidiaries from rpt_pnl_summary.
+        tests: [not_null]
+      - name: intercompany_eliminations_php
+        description: Total intercompany postings for the period, from fct_intercompany.
+        tests: [not_null]
+      - name: consolidated_revenue
+        description: standalone_revenue - intercompany_eliminations_php.
+        tests: [not_null]
+      - name: consolidated_net_income
+        description: Equal to standalone_net_income — intercompany flows net to zero at GROUP level.
+        tests: [not_null]

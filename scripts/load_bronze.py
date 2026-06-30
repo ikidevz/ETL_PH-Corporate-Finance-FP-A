@@ -40,6 +40,21 @@ COLUMN_MAP = {
         'adjustment_type', 'description', 'supporting_doc',
         'prepared_by', 'approved_by', 'approved_date', 'notes',
     ],
+    'raw_employee_roster': [
+        'employee_id', 'full_name', 'cost_center', 'subsidiary',
+        'job_level', 'monthly_base_php', 'hire_date',
+        'termination_date', 'employment_status',
+    ],
+    'raw_ap_ar': [
+        'invoice_id', 'doc_type', 'invoice_date', 'due_date',
+        'fiscal_year', 'fiscal_month', 'subsidiary', 'counterparty',
+        'amount_php', 'status', 'paid_date',
+    ],
+    'raw_intercompany': [
+        'intercompany_id', 'posting_date', 'fiscal_year', 'fiscal_month',
+        'from_subsidiary', 'to_subsidiary', 'ic_type', 'amount_php',
+        'description',
+    ],
 }
 
 conn = snowflake.connector.connect(
@@ -64,12 +79,20 @@ FILES = {
     'raw_forecast':           DATA_DIR / 'budget/raw_revised_forecast.csv',
     'raw_bank_statements':    DATA_DIR / 'banking/raw_bank_statements.csv',
     'raw_manual_adjustments': DATA_DIR / 'excel/raw_manual_adjustments.csv',
+    'raw_employee_roster':    DATA_DIR / 'hris/raw_employee_roster.csv',
+    'raw_ap_ar':              DATA_DIR / 'erp/raw_ap_ar.csv',
+    'raw_intercompany':       DATA_DIR / 'erp/raw_intercompany.csv',
 }
 
 for table, filepath in FILES.items():
     if not filepath.exists():
         print(f"[WARN] {filepath.name} not found — skipping.")
         continue
+
+    # Truncate first so reruns don't duplicate data (idempotent load).
+    cur.execute(f"TRUNCATE TABLE {SNOWFLAKE_DATABASE}.bronze.{table}")
+    print(f"  ✓ TRUNCATE {table}")
+
     cur.execute(
         f"PUT file://{filepath} @bronze_ingestion OVERWRITE=TRUE AUTO_COMPRESS=TRUE"
     )

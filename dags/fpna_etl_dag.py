@@ -10,8 +10,8 @@ from airflow.sdk import DAG, task
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path('/opt/airflow')
 SCRIPTS_DIR = PROJECT_ROOT / 'scripts'
-DBT_PROJECT_DIR = PROJECT_ROOT / 'dbt'
-DBT_PROFILES_DIR = PROJECT_ROOT / 'dbt'
+DBT_PROJECT_DIR = PROJECT_ROOT / 'fpna_dbt'
+DBT_PROFILES_DIR = PROJECT_ROOT / 'fpna_dbt'
 DBT_PROFILE = 'fpna'
 
 # ---------------------------------------------------------------------------
@@ -48,8 +48,9 @@ def _dbt(*args: str) -> None:
 
 with DAG(
     dag_id='ph_corporate_fpna_pipeline',
-    schedule=None,
-    start_date=datetime(2026, 1, 1),
+    # 6 AM on the 1st of every month (month-end close)
+    schedule='0 6 1 * *',
+    start_date=datetime(2024, 1, 1),
     catchup=False,
     default_args=DEFAULT_ARGS,
     tags=['fpna', 'finance', 'corporate'],
@@ -92,6 +93,27 @@ with DAG(
         """Generate raw_manual_adjustments.csv — month-end Excel adjustments."""
         subprocess.run(
             ['python', str(SCRIPTS_DIR / 'generate_manual_adjustments.py')], check=True)
+        print('[OK] Manual adjustments generated.')
+
+    @task
+    def generate_employee_roster():
+        """Generateraw_employee_roster.csv — Headcount and comp roster."""
+        subprocess.run(
+            ['python', str(SCRIPTS_DIR / 'generate_employee_roster.py')], check=True)
+        print('[OK] Manual adjustments generated.')
+
+    @task
+    def generate_ap_ar():
+        """Generate raw_ap_ar.csv — Open and settled accounts payable / receivable invoices."""
+        subprocess.run(
+            ['python', str(SCRIPTS_DIR / 'generate_ap_ar.py')], check=True)
+        print('[OK] Manual adjustments generated.')
+
+    @task
+    def generate_intercompany():
+        """Generate raw_intercompany.csv — Cross-subsidiary postings."""
+        subprocess.run(
+            ['python', str(SCRIPTS_DIR / 'generate_intercompany.py')], check=True)
         print('[OK] Manual adjustments generated.')
 
     @task
@@ -213,6 +235,10 @@ with DAG(
     t_fc = generate_forecast()
     t_bank = generate_bank_statements()
     t_adj = generate_manual_adjustments()
+    t_ros = generate_employee_roster()
+    t_ap_ar = generate_ap_ar()
+    t_inc = generate_intercompany()
+
     t_coa = generate_chart_of_accounts()
     t_cc = generate_cost_center_hierarchy()
     t_cal = generate_ph_fiscal_calendar()
@@ -226,6 +252,7 @@ with DAG(
     t_rpt = dbt_run_reporting()
     t_tests = dbt_test()
 
-    [t_gl, t_budget, t_fc, t_bank, t_adj] >> t_init >> t_bronze >> t_deps
+    [t_gl, t_budget, t_fc, t_bank, t_adj, t_ros,
+        t_ap_ar, t_inc] >> t_init >> t_bronze >> t_deps
     [t_coa, t_cc, t_cal, t_fx] >> t_deps
     t_deps >> t_seed >> t_staging >> t_core >> t_rpt >> t_tests

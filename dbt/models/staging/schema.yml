@@ -61,7 +61,10 @@ models:
       - name: net_amount
         description: >
           Signed net PHP amount. Computed as debit_amount - credit_amount
-          for ERP rows; raw signed amount for Excel uploads.
+          for ERP rows; raw signed amount for Excel uploads. Note: Revenue
+          accounts post credit-normal, so net_amount is negative for Revenue
+          and positive for expense-type accounts at this layer — the sign is
+          normalized downstream in fct_gl_actuals via dim_account.sign_convention.
         tests:
           - not_null
       - name: currency
@@ -171,6 +174,10 @@ models:
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 0
               max_value: 500000000
+      - name: currency
+        description: >
+          Transaction currency. Always 'PHP' in this dataset. (Selected by
+          stg_forecast.sql but previously undocumented here.)
       - name: scenario
         description: Scenario tag. Always 'REVISED_FORECAST'.
       - name: version
@@ -246,7 +253,11 @@ models:
       - name: currency
         description: Transaction currency. Always PHP.
       - name: cf_category
-        description: Cash flow classification — Operating, Investing, or Financing.
+        description: >
+          Cash flow classification — Operating, Investing, or Financing.
+          Note: the bank-statement generator only ever emits 'Operating' or
+          'Financing' (no transactions are tagged 'Investing'), which is why
+          rpt_cash_flow_statement.investing_cf is always zero in this dataset.
         tests:
           - not_null
           - accepted_values:
@@ -319,6 +330,153 @@ models:
         description: Date the adjustment was approved.
       - name: notes
         description: Additional free-text notes.
+      - name: _loaded_at
+        description: Bronze load timestamp inherited from source.
+        tests:
+          - not_null
+
+  - name: stg_employee_roster
+    description: >
+      Cleaned staging view over bronze.raw_employee_roster. One row per
+      employee. Used as the source for dim_employee.
+    columns:
+      - name: employee_id
+        description: Unique employee identifier from HRIS.
+        tests:
+          - not_null
+          - unique
+      - name: full_name
+        description: Employee full name.
+      - name: cost_center
+        description: Cost center code. FK to dim_cost_center.
+        tests:
+          - not_null
+      - name: subsidiary
+        description: Subsidiary code. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: job_level
+        description: Job level — Staff, Senior, Manager, Director, VP.
+      - name: monthly_base_php
+        description: Monthly base salary in PHP.
+        tests:
+          - not_null
+      - name: hire_date
+        description: Date of hire.
+      - name: termination_date
+        description: Date of termination, if applicable. NULL for active employees.
+      - name: employment_status
+        description: ACTIVE or TERMINATED.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["ACTIVE", "TERMINATED"]
+      - name: _loaded_at
+        description: Bronze load timestamp inherited from source.
+        tests:
+          - not_null
+
+  - name: stg_ap_ar
+    description: >
+      Cleaned staging view over bronze.raw_ap_ar. Adds days_outstanding for
+      open invoices, calculated against CURRENT_DATE. Used as the source
+      for fct_ap_ar.
+    columns:
+      - name: invoice_id
+        description: Unique invoice identifier, prefixed AP- or AR-.
+        tests:
+          - not_null
+          - unique
+      - name: doc_type
+        description: AP (we owe) or AR (owed to us).
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["AP", "AR"]
+      - name: invoice_date
+        description: Date the invoice was raised.
+        tests:
+          - not_null
+      - name: due_date
+        description: Payment due date based on invoice terms.
+      - name: fiscal_year
+        description: Fiscal year of the invoice.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month of the invoice (1–12).
+        tests:
+          - not_null
+      - name: subsidiary
+        description: Subsidiary code. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: counterparty
+        description: Vendor (AP) or customer (AR) name.
+      - name: amount_php
+        description: Invoice amount in PHP. Unsigned magnitude.
+        tests:
+          - not_null
+      - name: status
+        description: OPEN, PAID, or OVERDUE.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["OPEN", "PAID", "OVERDUE"]
+      - name: paid_date
+        description: Date paid, if status = PAID. NULL otherwise.
+      - name: days_outstanding
+        description: >
+          Days between invoice_date and paid_date (or CURRENT_DATE if still
+          open). Used for DSO/DPO-style aging metrics.
+      - name: _loaded_at
+        description: Bronze load timestamp inherited from source.
+        tests:
+          - not_null
+
+  - name: stg_intercompany
+    description: >
+      Cleaned staging view over bronze.raw_intercompany. Filters out any
+      row where from_subsidiary equals to_subsidiary (not a real
+      intercompany transfer). Used as the source for fct_intercompany.
+    columns:
+      - name: intercompany_id
+        description: Unique identifier for the intercompany posting.
+        tests:
+          - not_null
+          - unique
+      - name: posting_date
+        description: Date the intercompany posting was made.
+        tests:
+          - not_null
+      - name: fiscal_year
+        description: Fiscal year of the posting.
+        tests:
+          - not_null
+      - name: fiscal_month
+        description: Fiscal month of the posting (1–12).
+        tests:
+          - not_null
+      - name: from_subsidiary
+        description: Subsidiary that pays/charges out. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: to_subsidiary
+        description: Subsidiary that receives the charge. FK to dim_subsidiary.
+        tests:
+          - not_null
+      - name: ic_type
+        description: Type of intercompany posting.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["SHARED_SERVICE_CHARGE", "INTERCOMPANY_LOAN", "MGMT_FEE"]
+      - name: amount_php
+        description: Posting amount in PHP.
+        tests:
+          - not_null
+      - name: description
+        description: Free-text description of the posting.
       - name: _loaded_at
         description: Bronze load timestamp inherited from source.
         tests:
