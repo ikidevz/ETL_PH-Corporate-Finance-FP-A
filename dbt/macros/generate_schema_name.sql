@@ -1,9 +1,7 @@
-{% macro generate_schema_name(custom_schema_name, node) %}
-    {% if node.path.startswith('staging/') %}
-        silver
-    {% elif node.path.startswith('marts/') %}
-        gold
-    {% else %}
+{% macro generate_schema_name(custom_schema_name, node) -%}
+    {%- if custom_schema_name is none -%}
         {{ target.schema }}
-    {% endif %}
-{% endmacro %}
+    {%- else -%}
+        {{ custom_schema_name | trim }}
+    {%- endif -%}
+{%- endmacro %}

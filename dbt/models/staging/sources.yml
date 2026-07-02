@@ -99,11 +99,11 @@ sources:
           static reference data. Loaded via BUDGET_UPLOAD source.
         columns:
           - name: fiscal_year
-            description: Budget fiscal year (2024 or 2025).
+            description: Budget fiscal year (2024 to 2026).
             tests:
               - not_null
               - accepted_values:
-                  values: [2024, 2025]
+                  values: [2024, 2025, 2026]
           - name: fiscal_month
             description: Budget month integer 1–12.
             tests:
@@ -185,7 +185,7 @@ sources:
           - name: scenario
             description: Scenario tag. Always 'REVISED_FORECAST' for this table.
           - name: version
-            description: Forecast version: RF1, RF2, or RF3.
+            description: Forecast version RF1, RF2, or RF3.
             tests:
               - not_null
               - accepted_values:
@@ -311,7 +311,8 @@ sources:
             tests:
               - not_null
               - accepted_values:
-                  values: ["ACCRUAL", "REVERSAL", "RECLASSIFICATION", "CORRECTION"]
+                  values:
+                    ["ACCRUAL", "REVERSAL", "RECLASSIFICATION", "CORRECTION"]
           - name: description
             description: Free-text description of the adjustment.
           - name: supporting_doc
@@ -462,7 +463,8 @@ sources:
             tests:
               - not_null
               - accepted_values:
-                  values: ["SHARED_SERVICE_CHARGE", "INTERCOMPANY_LOAN", "MGMT_FEE"]
+                  values:
+                    ["SHARED_SERVICE_CHARGE", "INTERCOMPANY_LOAN", "MGMT_FEE"]
           - name: amount_php
             description: Posting amount in PHP.
             tests:

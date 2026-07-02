@@ -9,9 +9,9 @@ fpna:
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
-      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+      database: fpna_db
       schema: silver
-      threads: 8
+      threads: 4
       client_session_keep_alive: False
       query_tag: fpna_dbt
 
@@ -22,7 +22,7 @@ fpna:
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
-      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+      database: fpna_db
       schema: silver
       threads: 8
       client_session_keep_alive: False

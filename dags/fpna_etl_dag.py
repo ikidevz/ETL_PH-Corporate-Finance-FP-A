@@ -1,17 +1,17 @@
-import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from airflow.sdk import DAG, task
 
+from airflow.sdk import DAG, task
+from airflow.providers.standard.operators.empty import EmptyOperator
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path('/opt/airflow')
 SCRIPTS_DIR = PROJECT_ROOT / 'scripts'
-DBT_PROJECT_DIR = PROJECT_ROOT / 'fpna_dbt'
-DBT_PROFILES_DIR = PROJECT_ROOT / 'fpna_dbt'
+DBT_PROJECT_DIR = PROJECT_ROOT / 'dbt'
+DBT_PROFILES_DIR = PROJECT_ROOT / 'dbt'
 DBT_PROFILE = 'fpna'
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ def _dbt(*args: str) -> None:
 with DAG(
     dag_id='ph_corporate_fpna_pipeline',
     # 6 AM on the 1st of every month (month-end close)
-    schedule='0 6 1 * *',
+    schedule=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
     default_args=DEFAULT_ARGS,
@@ -100,21 +100,23 @@ with DAG(
         """Generateraw_employee_roster.csv — Headcount and comp roster."""
         subprocess.run(
             ['python', str(SCRIPTS_DIR / 'generate_employee_roster.py')], check=True)
-        print('[OK] Manual adjustments generated.')
+        print('[OK] Employee roster generated.')
 
     @task
     def generate_ap_ar():
         """Generate raw_ap_ar.csv — Open and settled accounts payable / receivable invoices."""
         subprocess.run(
             ['python', str(SCRIPTS_DIR / 'generate_ap_ar.py')], check=True)
-        print('[OK] Manual adjustments generated.')
+        print('[OK] AP/AR generated.')
 
     @task
     def generate_intercompany():
         """Generate raw_intercompany.csv — Cross-subsidiary postings."""
         subprocess.run(
             ['python', str(SCRIPTS_DIR / 'generate_intercompany.py')], check=True)
-        print('[OK] Manual adjustments generated.')
+        print('[OK] Intercompany generated.')
+
+    init_meta = EmptyOperator(task_id="init_meta", dag=dag)
 
     @task
     def generate_chart_of_accounts():
@@ -243,6 +245,7 @@ with DAG(
     t_cc = generate_cost_center_hierarchy()
     t_cal = generate_ph_fiscal_calendar()
     t_fx = generate_fx_rates()
+
     t_init = load_init_snowflake()
     t_bronze = load_bronze()
     t_deps = dbt_deps()
@@ -252,7 +255,23 @@ with DAG(
     t_rpt = dbt_run_reporting()
     t_tests = dbt_test()
 
-    [t_gl, t_budget, t_fc, t_bank, t_adj, t_ros,
-        t_ap_ar, t_inc] >> t_init >> t_bronze >> t_deps
-    [t_coa, t_cc, t_cal, t_fx] >> t_deps
-    t_deps >> t_seed >> t_staging >> t_core >> t_rpt >> t_tests
+    generators = [
+        t_gl,
+        t_budget,
+        t_fc,
+        t_bank,
+        t_adj,
+        t_ros,
+        t_ap_ar,
+        t_inc,
+    ]
+
+    metadata = [
+        t_coa,
+        t_cc,
+        t_cal,
+        t_fx,
+    ]
+
+    generators >> init_meta >> metadata >> t_init >> t_bronze
+    t_bronze >> t_deps >> t_seed >> t_staging >> t_core >> t_rpt >> t_tests

@@ -17,7 +17,13 @@ SELECT
     s.debit_amount,
     s.credit_amount,
     s.net_amount,
-    ROUND(s.net_amount * COALESCE(fx.usd_php_rate, 1) * COALESCE(a.sign_convention, 1), 2) AS net_amount_php,
+    s.currency,
+    ROUND(
+        s.net_amount
+        * CASE WHEN s.currency = 'PHP' THEN 1 ELSE COALESCE(fx.usd_php_rate, 1) END
+        * COALESCE(a.sign_convention, 1),
+        2
+    ) AS net_amount_php,
     s.entry_source,
     s._loaded_at
 FROM {{ ref('stg_gl_actuals') }}            s

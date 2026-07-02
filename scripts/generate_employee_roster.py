@@ -33,10 +33,10 @@ schema = [
         "min": 20000, "max": 250000, "decimals": 2
     }},
     {"label": "hire_date", "key_label": "datetime", "options": {
-        "from_date": '1/1/2018', "to_date": '06/30/2026', "date_format": "iso"
+        "from_date": '1/1/2018', "to_date": '06/30/2026', "date_format": "yyyy-mm-dd"
     }},
     {"label": "_termination_date", "key_label": "datetime", "options": {
-        "from_date": '1/1/2018', "to_date": '06/30/2026', "date_format": "iso"
+        "from_date": '1/1/2018', "to_date": '06/30/2026', "date_format": "yyyy-mm-dd"
     }},
     {'label': '_status', 'key_label': 'custom_list',
      'options': {'values': EMPLOYMENT_STATUS}},

@@ -34,7 +34,7 @@ for m in range(MONTHS):
             {'label': 'to_subsidiary', 'key_label': 'lambda',
              'options': {'func': lambda:  to_sub}},
             {'label': 'ic_type', 'key_label': 'custom_list',
-             'options': {'values': SUBSIDIARIES}},
+             'options': {'values': IC_TYPES}},
             {"label": "amount_php", "key_label": "number", "options": {
                 "min": 50000, "max": 2000000, "decimals": 2
             }},

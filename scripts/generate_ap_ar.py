@@ -33,7 +33,7 @@ for m in range(MONTHS):
             {'label': 'invoice_date', 'key_label': 'lambda',
              'options': {'func': lambda:  (period + timedelta(days=random.randint(0, 27))).isoformat()}},
             {'label': 'due_date', 'key_label': 'lambda',
-             'options': {'func': lambda row: (datetime.fromisoformat(row['invoice_date']) + timedelta(days=random.choice([15, 30, 45, 60]))).isoformat()}},
+             'options': {'func': lambda row: (datetime.fromisoformat(row['invoice_date']) + timedelta(days=random.choice([15, 30, 45, 60]))).strftime("%Y-%m-%d")}},
             {'label': 'fiscal_year', 'key_label': 'lambda',
              'options': {'func': lambda:  yr}},
             {'label': 'fiscal_month', 'key_label': 'lambda',
@@ -47,7 +47,7 @@ for m in range(MONTHS):
             {'label': 'status', 'key_label': 'lambda',
              'options': {'func': lambda:  random.choices(STATUSES, weights=[30, 60, 10])[0]}},
             {'label': 'paid_date', 'key_label': 'lambda',
-             'options': {'func': lambda row: (datetime.fromisoformat(row['due_date']) + timedelta(days=random.randint(-10, 5))).isoformat() if row['status'] == 'PAID' else None}},
+             'options': {'func': lambda row: (datetime.fromisoformat(row['due_date']) + timedelta(days=random.randint(-10, 5))).strftime("%Y-%m-%d") if row['status'] == 'PAID' else None}},
         ]
         payload = IkiDataGenerator(schema).one()
         rows.append(payload)

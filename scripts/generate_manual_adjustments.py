@@ -64,7 +64,7 @@ for m in range(MONTHS):
             {'label': 'approved_by', 'key_label': 'custom_list',
              'options': {'values': APPROVERS}},
             {'label': 'approved_date', 'key_label': 'lambda',
-             'options': {'func': lambda row:  (datetime.fromisoformat(row['posting_date']) + timedelta(days=1)).isoformat()}},
+             'options': {'func': lambda row:  (datetime.fromisoformat(row['posting_date']) + timedelta(days=1)).strftime("%Y-%m-%d")}},
             {'label': 'notes', 'key_label': 'lambda',
              'options': {'func': lambda row:  row['gl_account'] + ' ' + row['cost_center'] + ' ' + row['subsidiary']}},
         ]

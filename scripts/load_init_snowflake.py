@@ -201,22 +201,42 @@ year_union = '\n            UNION ALL '.join(
     [f'SELECT {y} AS fy' for y in FISCAL_YEARS_LOCK]
 )
 cur.execute(f"""
-    MERGE INTO {SNOWFLAKE_DATABASE}.control.period_lock AS t
-    USING (
-        SELECT f.fy AS fiscal_year, f.fm AS fiscal_month
-        FROM (
-            {year_union}
-        ) y
-        CROSS JOIN (
-            SELECT  1 AS fm UNION ALL SELECT  2 UNION ALL SELECT  3
-            UNION ALL SELECT  4 UNION ALL SELECT  5 UNION ALL SELECT  6
-            UNION ALL SELECT  7 UNION ALL SELECT  8 UNION ALL SELECT  9
-            UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12
-        ) m
-    ) AS s ON t.fiscal_year = s.fiscal_year AND t.fiscal_month = s.fiscal_month
-    WHEN NOT MATCHED THEN
-        INSERT (fiscal_year, fiscal_month, period_status)
-        VALUES (s.fiscal_year, s.fiscal_month, 'OPEN')
+MERGE INTO {SNOWFLAKE_DATABASE}.control.period_lock AS t
+USING (
+    SELECT
+        y.fy AS fiscal_year,
+        m.fm AS fiscal_month
+    FROM (
+        {year_union}
+    ) y
+    CROSS JOIN (
+        SELECT 1 AS fm
+        UNION ALL SELECT 2
+        UNION ALL SELECT 3
+        UNION ALL SELECT 4
+        UNION ALL SELECT 5
+        UNION ALL SELECT 6
+        UNION ALL SELECT 7
+        UNION ALL SELECT 8
+        UNION ALL SELECT 9
+        UNION ALL SELECT 10
+        UNION ALL SELECT 11
+        UNION ALL SELECT 12
+    ) m
+) s
+ON t.fiscal_year = s.fiscal_year
+AND t.fiscal_month = s.fiscal_month
+WHEN NOT MATCHED THEN
+    INSERT (
+        fiscal_year,
+        fiscal_month,
+        period_status
+    )
+    VALUES (
+        s.fiscal_year,
+        s.fiscal_month,
+        'OPEN'
+    );
 """)
 print("[OK] control.period_lock seeded (OPEN for all periods).")
 

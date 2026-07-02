@@ -36,6 +36,7 @@ models:
 
     staging:
       +materialized: view
+      +schema: silver
       +tags:
         - staging
         - silver
@@ -43,12 +44,14 @@ models:
     marts:
       core:
         +materialized: table
+        +schema: gold
         +tags:
           - mart
           - gold
 
       reporting:
         +materialized: view
+        +schema: gold
         +tags:
           - reporting
           - gold

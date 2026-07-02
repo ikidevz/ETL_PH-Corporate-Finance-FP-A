@@ -68,6 +68,7 @@ SELECT
     CASE WHEN p.total_revenue = 0 THEN NULL
          ELSE ROUND(p.ebitda / p.total_revenue * 100, 2)
     END                                                         AS ebitda_margin_pct,
+    p.personnel_costs,
     p.finance_costs,
     p.net_income,
     CASE WHEN p.total_revenue = 0 THEN NULL

@@ -79,9 +79,9 @@ FILES = {
     'raw_forecast':           DATA_DIR / 'budget/raw_revised_forecast.csv',
     'raw_bank_statements':    DATA_DIR / 'banking/raw_bank_statements.csv',
     'raw_manual_adjustments': DATA_DIR / 'excel/raw_manual_adjustments.csv',
-    'raw_employee_roster':    DATA_DIR / 'hris/raw_employee_roster.csv',
-    'raw_ap_ar':              DATA_DIR / 'erp/raw_ap_ar.csv',
-    'raw_intercompany':       DATA_DIR / 'erp/raw_intercompany.csv',
+    'raw_employee_roster':    DATA_DIR / 'hr/raw_employee_roster.csv',
+    'raw_ap_ar':              DATA_DIR / 'ap_ar/raw_ap_ar.csv',
+    'raw_intercompany':       DATA_DIR / 'intercompany/raw_intercompany.csv',
 }
 
 for table, filepath in FILES.items():
@@ -90,8 +90,8 @@ for table, filepath in FILES.items():
         continue
 
     # Truncate first so reruns don't duplicate data (idempotent load).
-    cur.execute(f"TRUNCATE TABLE {SNOWFLAKE_DATABASE}.bronze.{table}")
-    print(f"  ✓ TRUNCATE {table}")
+    # cur.execute(f"TRUNCATE TABLE {SNOWFLAKE_DATABASE}.bronze.{table}")
+    # print(f"  ✓ TRUNCATE {table}")
 
     cur.execute(
         f"PUT file://{filepath} @bronze_ingestion OVERWRITE=TRUE AUTO_COMPRESS=TRUE"
